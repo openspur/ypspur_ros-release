@@ -1,0 +1,12 @@
+Source: ros-indigo-ypspur-ros
+Section: misc
+Priority: extra
+Maintainer: Atsushi Watanabe <atsushi.w@openspur.org>
+Build-Depends: debhelper (>= 9.0.0), ros-indigo-catkin, ros-indigo-geometry-msgs, ros-indigo-nav-msgs, ros-indigo-roscpp, ros-indigo-roslint, ros-indigo-rospy, ros-indigo-rostest, ros-indigo-sensor-msgs, ros-indigo-std-msgs, ros-indigo-tf, ros-indigo-trajectory-msgs, ros-indigo-ypspur
+Homepage: 
+Standards-Version: 3.9.2
+
+Package: ros-indigo-ypspur-ros
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-indigo-geometry-msgs, ros-indigo-nav-msgs, ros-indigo-roscpp, ros-indigo-rospy, ros-indigo-sensor-msgs, ros-indigo-std-msgs, ros-indigo-tf, ros-indigo-trajectory-msgs, ros-indigo-ypspur
+Description: ROS wrapper for the mobile robot control platform YP-Spur
