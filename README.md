@@ -1,3 +1,26 @@
+## ypspur_ros (melodic) - 0.2.0-0
+
+The packages in the `ypspur_ros` repository were released into the `melodic` distro by running `/usr/local/bin/bloom-release ypspur_ros --track melodic --ros-distro melodic` on `Thu, 07 Jun 2018 06:36:10 -0000`
+
+The `ypspur_ros` package was released.
+
+Version of package(s) in repository `ypspur_ros`:
+
+- upstream repository: https://github.com/openspur/ypspur_ros.git
+- release repository: unknown
+- rosdistro version: `null`
+- old version: `null`
+- new version: `0.2.0-0`
+
+Versions of tools used:
+
+- bloom version: `0.6.4`
+- catkin_pkg version: `0.4.1`
+- rosdep version: `0.12.2`
+- rosdistro version: `0.6.8`
+- vcstools version: `0.1.40`
+
+
 ## ypspur_ros (lunar) - 0.2.0-0
 
 The packages in the `ypspur_ros` repository were released into the `lunar` distro by running `/usr/local/bin/bloom-release ypspur_ros --track lunar --ros-distro lunar` on `Thu, 07 Jun 2018 03:19:37 -0000`
