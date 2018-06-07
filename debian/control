@@ -1,0 +1,12 @@
+Source: ros-lunar-ypspur-ros
+Section: misc
+Priority: extra
+Maintainer: Atsushi Watanabe <atsushi.w@openspur.org>
+Build-Depends: debhelper (>= 9.0.0), ros-lunar-catkin, ros-lunar-geometry-msgs, ros-lunar-nav-msgs, ros-lunar-roscpp, ros-lunar-roslint, ros-lunar-rospy, ros-lunar-rostest, ros-lunar-sensor-msgs, ros-lunar-std-msgs, ros-lunar-tf, ros-lunar-trajectory-msgs, ros-lunar-ypspur
+Homepage: 
+Standards-Version: 3.9.2
+
+Package: ros-lunar-ypspur-ros
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-lunar-geometry-msgs, ros-lunar-nav-msgs, ros-lunar-roscpp, ros-lunar-rospy, ros-lunar-sensor-msgs, ros-lunar-std-msgs, ros-lunar-tf, ros-lunar-trajectory-msgs, ros-lunar-ypspur
+Description: ROS wrapper for the mobile robot control platform YP-Spur
