@@ -58,6 +58,7 @@ endif()
 
 
 include_directories(
+  include
   ${catkin_INCLUDE_DIRS}
   ${ypspur_INCLUDE_DIRS}
 )
@@ -81,15 +82,13 @@ add_dependencies(joint_position_to_joint_trajectory ${ypspur_ros_EXPORTED_TARGET
 ## Install ##
 #############
 
-install(TARGETS ypspur_ros ypspur_ros
+install(TARGETS
+    ypspur_ros
+    joint_tf_publisher
+    joint_position_to_joint_trajectory
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-install(FILES
-  #launch/.launch
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
 #############
