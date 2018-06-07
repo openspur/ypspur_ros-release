@@ -40,13 +40,15 @@
 #include <map>
 #include <string>
 
-class joint_tf_publisher_node
+#include <compatibility.h>
+
+class JointTfPublisherNode
 {
 private:
-  ros::NodeHandle nh;
-  std::map<std::string, ros::Publisher> pubs;
-  std::map<std::string, ros::Subscriber> subs;
-  tf::TransformBroadcaster tf_broadcaster;
+  ros::NodeHandle nh_;
+  ros::NodeHandle pnh_;
+  std::map<std::string, ros::Subscriber> subs_;
+  tf::TransformBroadcaster tf_broadcaster_;
 
   void cbJoint(const sensor_msgs::JointState::ConstPtr& msg)
   {
@@ -57,15 +59,18 @@ private:
       trans.header.frame_id = msg->name[i] + "_in";
       trans.child_frame_id = msg->name[i] + "_out";
       trans.transform.rotation = tf::createQuaternionMsgFromYaw(msg->position[i]);
-      tf_broadcaster.sendTransform(trans);
+      tf_broadcaster_.sendTransform(trans);
     }
   }
 
 public:
-  joint_tf_publisher_node()
-    : nh("~")
+  JointTfPublisherNode()
+    : nh_()
+    , pnh_("~")
   {
-    subs["joint"] = nh.subscribe("joint", 1, &joint_tf_publisher_node::cbJoint, this);
+    subs_["joint"] = compat::subscribe(
+        nh_, "joint_states",
+        pnh_, "joint", 1, &JointTfPublisherNode::cbJoint, this);
   }
 };
 
@@ -73,7 +78,7 @@ int main(int argc, char* argv[])
 {
   ros::init(argc, argv, "joint_tf_publisher");
 
-  joint_tf_publisher_node jp;
+  JointTfPublisherNode jp;
   ros::spin();
 
   return 0;
