@@ -29,6 +29,7 @@
 
 #include <ros/ros.h>
 
+#include <diagnostic_msgs/DiagnosticArray.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/WrenchStamped.h>
 #include <nav_msgs/Odometry.h>
@@ -46,6 +47,9 @@
 #include <tf/transform_listener.h>
 
 #include <signal.h>
+#include <string.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -53,6 +57,8 @@
 #include <boost/chrono.hpp>
 #include <boost/thread.hpp>
 #include <boost/thread/future.hpp>
+
+#include <exception>
 #include <map>
 #include <string>
 #include <vector>
@@ -149,7 +155,13 @@ private:
   const int dio_num_ = 8;
   std::map<int, ros::Time> dio_revert_;
 
-  geometry_msgs::Twist cmd_vel_;
+  int device_error_state_;
+  int device_error_state_prev_;
+  ros::Time device_error_state_time_;
+
+  geometry_msgs::Twist::ConstPtr cmd_vel_;
+  ros::Time cmd_vel_time_;
+  ros::Duration cmd_vel_expire_;
 
   int control_mode_;
 
@@ -170,7 +182,8 @@ private:
   }
   void cbCmdVel(const geometry_msgs::Twist::ConstPtr &msg)
   {
-    cmd_vel_ = *msg;
+    cmd_vel_ = msg;
+    cmd_vel_time_ = ros::Time::now();
     if (control_mode_ == ypspur_ros::ControlMode::VELOCITY)
     {
       YP::YPSpur_vel(msg->linear.x, msg->angular.z);
@@ -181,21 +194,33 @@ private:
 #if !(YPSPUR_JOINT_ANG_VEL_SUPPORT)
     ROS_ERROR("JointTrajectory command is not available on this YP-Spur version");
 #endif
+    const ros::Time now = ros::Time::now();
+
     std_msgs::Header header = msg->header;
     if (header.stamp == ros::Time(0))
-      header.stamp = ros::Time::now();
-    size_t i = 0;
-    for (auto &name : msg->joint_names)
-    {
-      auto &j = joints_[joint_name_to_num_[name]];
-      j.control_ = JointParams::TRAJECTORY;
+      header.stamp = now;
 
-      j.cmd_joint_.header = header;
-      j.cmd_joint_.joint_names.resize(1);
-      j.cmd_joint_.joint_names[0] = name;
-      j.cmd_joint_.points.clear();
+    std::map<std::string, trajectory_msgs::JointTrajectory> new_cmd_joints;
+    size_t i = 0;
+    for (const std::string &name : msg->joint_names)
+    {
+      trajectory_msgs::JointTrajectory cmd_joint;
+      cmd_joint.header = header;
+      cmd_joint.joint_names.resize(1);
+      cmd_joint.joint_names[0] = name;
+      cmd_joint.points.clear();
+      std::string err_msg;
       for (auto &cmd : msg->points)
       {
+        if (header.stamp + cmd.time_from_start < now)
+        {
+          ROS_ERROR(
+              "Ignored outdated JointTrajectory command "
+              "(joint: %s, now: %0.6lf, stamp: %0.6lf, time_from_start: %0.6lf)",
+              name.c_str(), now.toSec(), header.stamp.toSec(), cmd.time_from_start.toSec());
+          break;
+        }
+
         trajectory_msgs::JointTrajectoryPoint p;
         p.time_from_start = cmd.time_from_start;
         p.positions.resize(1);
@@ -206,9 +231,21 @@ private:
           p.velocities[0] = cmd.velocities[i];
         p.positions[0] = cmd.positions[i];
 
-        j.cmd_joint_.points.push_back(p);
+        cmd_joint.points.push_back(p);
       }
       i++;
+
+      if (cmd_joint.points.size() != msg->points.size())
+        return;
+
+      new_cmd_joints[name] = cmd_joint;
+    }
+    // Apply if all JointTrajectoryPoints are valid
+    for (auto &new_cmd_joint : new_cmd_joints)
+    {
+      const int joint_num = joint_name_to_num_[new_cmd_joint.first];
+      joints_[joint_num].control_ = JointParams::TRAJECTORY;
+      joints_[joint_num].cmd_joint_ = new_cmd_joint.second;
     }
   }
   void cbSetVel(const std_msgs::Float32::ConstPtr &msg, int num)
@@ -339,11 +376,85 @@ private:
 
     dio_revert_[id_] = ros::Time(0);
   }
+  void updateDiagnostics(const ros::Time &now, const bool connection_down = false)
+  {
+    const int connection_error = connection_down ? 1 : YP::YP_get_error_state();
+    double t = 0;
+
+#if (YPSPUR_GET_DEVICE_ERROR_STATE_SUPPORT)
+    int err = 0;
+    if (!connection_error)
+      t = YP::YP_get_device_error_state(0, &err);
+    device_error_state_ |= err;
+#else
+    ROS_WARN_ONCE(
+        "This version of yp-spur doesn't provide device error status. "
+        "Consider building ypspur_ros with latest yp-spur.");
+#endif
+    if (device_error_state_time_ + ros::Duration(1.0) < now || connection_down ||
+        device_error_state_ != device_error_state_prev_)
+    {
+      device_error_state_time_ = now;
+      device_error_state_prev_ = device_error_state_;
+
+      diagnostic_msgs::DiagnosticArray msg;
+      msg.header.stamp = now;
+      msg.status.resize(1);
+      msg.status[0].name = "YP-Spur Motor Controller";
+      msg.status[0].hardware_id = "ipc-key" + std::to_string(key_);
+      if (device_error_state_ == 0 && connection_error == 0)
+      {
+        if (t == 0)
+        {
+          msg.status[0].level = diagnostic_msgs::DiagnosticStatus::OK;
+          msg.status[0].message = "Motor controller doesn't "
+                                  "provide device error state.";
+        }
+        else
+        {
+          if (ros::Time(t) < now - ros::Duration(1.0))
+          {
+            msg.status[0].level = diagnostic_msgs::DiagnosticStatus::ERROR;
+            msg.status[0].message = "Motor controller doesn't "
+                                    "update latest device error state.";
+          }
+          else
+          {
+            msg.status[0].level = diagnostic_msgs::DiagnosticStatus::OK;
+            msg.status[0].message = "Motor controller is running without error.";
+          }
+        }
+      }
+      else
+      {
+        msg.status[0].level = diagnostic_msgs::DiagnosticStatus::ERROR;
+        if (connection_error)
+          msg.status[0].message +=
+              "Connection to ypspur-coordinator is down.";
+        if (device_error_state_)
+          msg.status[0].message +=
+              std::string((msg.status[0].message.size() > 0 ? " " : "")) +
+              "Motor controller reported error id " +
+              std::to_string(device_error_state_) + ".";
+      }
+      msg.status[0].values.resize(2);
+      msg.status[0].values[0].key = "connection_error";
+      msg.status[0].values[0].value = std::to_string(connection_error);
+      msg.status[0].values[1].key = "device_error";
+      msg.status[0].values[1].value = std::to_string(device_error_state_);
+
+      pubs_["diag"].publish(msg);
+      device_error_state_ = 0;
+    }
+  }
 
 public:
   YpspurRosNode()
     : nh_()
     , pnh_("~")
+    , device_error_state_(0)
+    , device_error_state_prev_(0)
+    , device_error_state_time_(0)
   {
     compat::checkCompatMode();
 
@@ -356,6 +467,11 @@ public:
     pnh_.param("ypspur_bin", ypspur_bin_, std::string("ypspur-coordinator"));
     pnh_.param("param_file", param_file_, std::string(""));
     pnh_.param("tf_time_offset", tf_time_offset_, 0.0);
+
+    double cmd_vel_expire_s;
+    pnh_.param("cmd_vel_expire", cmd_vel_expire_s, -1.0);
+    cmd_vel_expire_ = ros::Duration(cmd_vel_expire_s);
+
     std::string ad_mask("");
     ads_.resize(ad_num_);
     for (int i = 0; i < ad_num_; i++)
@@ -462,8 +578,7 @@ public:
     }
     else
     {
-      ROS_ERROR("unknown mode '%s'", mode_name.c_str());
-      throw(std::string("unknown mode '") + mode_name + std::string("'"));
+      throw(std::runtime_error("unknown mode: " + mode_name));
     }
 
     int max_joint_id;
@@ -519,8 +634,7 @@ public:
     {
       if (!(joints_.size() == 2 && joints_[0].id_ == 0 && joints_[1].id_ == 1))
       {
-        ROS_ERROR("This version of yp-spur only supports [joint0_enable: true, joint1_enable: true]");
-        throw(std::string("joint configuration error"));
+        throw(std::runtime_error("This version of yp-spur only supports [joint0_enable: true, joint1_enable: true]"));
       }
     }
 #endif
@@ -538,60 +652,86 @@ public:
         pnh_, "control_mode", 1, &YpspurRosNode::cbControlMode, this);
     control_mode_ = ypspur_ros::ControlMode::VELOCITY;
 
+    pubs_["diag"] = nh_.advertise<diagnostic_msgs::DiagnosticArray>(
+        "/diagnostics", 1);
+
     pid_ = 0;
     for (int i = 0; i < 2; i++)
     {
       if (i > 0 || YP::YPSpur_initex(key_) < 0)
       {
+        std::vector<std::string> args =
+            {
+              ypspur_bin_,
+              "-d", port_,
+              "--admask", ad_mask,
+              "--msq-key", std::to_string(key_)
+            };
+        if (digital_input_enable_)
+          args.push_back(std::string("--enable-get-digital-io"));
+        if (simulate_)
+          args.push_back(std::string("--without-device"));
+        if (param_file_.size() > 0)
+        {
+          args.push_back(std::string("-p"));
+          args.push_back(param_file_);
+        }
+
+        char **argv = new char *[args.size() + 1];
+        for (unsigned int i = 0; i < args.size(); i++)
+        {
+          argv[i] = new char[args[i].size() + 1];
+          memcpy(argv[i], args[i].c_str(), args[i].size());
+          argv[i][args[i].size()] = 0;
+        }
+        argv[args.size()] = nullptr;
+
+        int msq = msgget(key_, 0666 | IPC_CREAT);
+        msgctl(msq, IPC_RMID, nullptr);
+
         ROS_WARN("launching ypspur-coordinator");
         pid_ = fork();
-        if (pid_ == 0)
+        if (pid_ == -1)
         {
-          std::vector<std::string> args;
-          args.push_back(ypspur_bin_);
-          args.push_back(std::string("-d"));
-          args.push_back(port_);
-          args.push_back(std::string("--admask"));
-          args.push_back(ad_mask);
-          args.push_back(std::string("--msq-key"));
-          args.push_back(std::to_string(key_));
-          if (digital_input_enable_)
-            args.push_back(std::string("--enable-get-digital-io"));
-          if (simulate_)
-            args.push_back(std::string("--without-device"));
-          if (param_file_.size() > 0)
-          {
-            args.push_back(std::string("-p"));
-            args.push_back(param_file_);
-          }
-
-          const char **argv = new const char *[args.size() + 1];
-          for (unsigned int i = 0; i < args.size(); i++)
-            argv[i] = args[i].c_str();
-          argv[args.size()] = nullptr;
-
-          execvp(ypspur_bin_.c_str(), const_cast<char **>(argv));
-          ROS_ERROR("failed to start ypspur-coordinator");
-          throw(std::string("failed to start ypspur-coordinator"));
+          const int err = errno;
+          throw(std::runtime_error(std::string("failed to fork process: ") + strerror(err)));
         }
-        sleep(2);
-        if (YP::YPSpur_initex(key_) < 0)
+        else if (pid_ == 0)
         {
-          ROS_ERROR("failed to init libypspur");
-          throw(std::string("failed to init libypspur"));
+          execvp(ypspur_bin_.c_str(), argv);
+          throw(std::runtime_error("failed to start ypspur-coordinator"));
+        }
+
+        for (unsigned int i = 0; i < args.size(); i++)
+          delete argv[i];
+        delete argv;
+
+        for (int i = 4; i >= 0; i--)
+        {
+          int status;
+          if (waitpid(pid_, &status, WNOHANG) == pid_)
+          {
+            throw(std::runtime_error("ypspur-coordinator dead immediately"));
+          }
+          else if (i == 0)
+          {
+            throw(std::runtime_error("failed to init libypspur"));
+          }
+          ros::WallDuration(1).sleep();
+          if (YP::YPSpur_initex(key_) >= 0)
+            break;
         }
       }
-      double test_v, test_w;
       double ret;
       boost::atomic<bool> done(false);
-      auto get_vel_thread = [&test_v, &test_w, &ret, &done]
+      auto get_vel_thread = [&ret, &done]
       {
+        double test_v, test_w;
         ret = YP::YPSpur_get_vel(&test_v, &test_w);
         done = true;
       };
       boost::thread spur_test = boost::thread(get_vel_thread);
-      boost::chrono::milliseconds span(100);
-      boost::this_thread::sleep_for(span);
+      ros::WallDuration(0.1).sleep();
       if (!done)
       {
         // There is no way to kill thread safely in C++11
@@ -642,6 +782,15 @@ public:
   }
   ~YpspurRosNode()
   {
+    if (pid_ > 0)
+    {
+      ROS_INFO("killing ypspur-coordinator (%d)", (int)pid_);
+      kill(pid_, SIGINT);
+      int status;
+      waitpid(pid_, &status, 0);
+      ROS_INFO("ypspur-coordinator is killed (status: %d)", status);
+    }
+    ros::shutdown();
   }
   void spin()
   {
@@ -688,12 +837,23 @@ public:
     ros::Rate loop(params_["hz"]);
     while (!g_shutdown)
     {
-      auto now = ros::Time::now();
-      float dt = 1.0 / params_["hz"];
+      const auto now = ros::Time::now();
+      const float dt = 1.0 / params_["hz"];
+
+      if (cmd_vel_ && cmd_vel_expire_ > ros::Duration(0))
+      {
+        if (cmd_vel_time_ + cmd_vel_expire_ < now)
+        {
+          // cmd_vel is too old and expired
+          cmd_vel_ = nullptr;
+          if (control_mode_ == ypspur_ros::ControlMode::VELOCITY)
+            YP::YPSpur_vel(0.0, 0.0);
+        }
+      }
 
       if (mode_ == DIFF)
       {
-        double x, y, yaw, v, w;
+        double x, y, yaw, v(0), w(0);
         double t;
 
         if (!simulate_control_)
@@ -706,8 +866,11 @@ public:
         else
         {
           t = ros::Time::now().toSec();
-          v = cmd_vel_.linear.x;
-          w = cmd_vel_.angular.z;
+          if (cmd_vel_)
+          {
+            v = cmd_vel_->linear.x;
+            w = cmd_vel_->angular.z;
+          }
           yaw = tf::getYaw(odom.pose.pose.orientation) + dt * w;
           x = odom.pose.pose.position.x + dt * v * cosf(yaw);
           y = odom.pose.pose.position.y + dt * v * sinf(yaw);
@@ -1094,6 +1257,7 @@ public:
           }
         }
       }
+      updateDiagnostics(now);
 
       if (YP::YP_get_error_state())
       {
@@ -1121,19 +1285,12 @@ public:
           {
             ROS_ERROR("ypspur-coordinator dead");
           }
+          updateDiagnostics(now, true);
         }
         break;
       }
     }
     ROS_INFO("ypspur_ros main loop terminated");
-    ros::shutdown();
-    ros::spin();
-    if (pid_ > 0)
-    {
-      ROS_INFO("killing ypspur-coordinator (%d)", (int)pid_);
-      kill(pid_, SIGINT);
-      sleep(2);
-    }
   }
 };
 
@@ -1146,8 +1303,10 @@ int main(int argc, char *argv[])
     YpspurRosNode yr;
     yr.spin();
   }
-  catch (std::string e)
+  catch (std::runtime_error &e)
   {
+    ROS_ERROR("%s", e.what());
+    return -1;
   }
 
   return 0;
