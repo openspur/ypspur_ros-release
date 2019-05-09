@@ -1,3 +1,26 @@
+## ypspur_ros (lunar) - 0.3.0-1
+
+The packages in the `ypspur_ros` repository were released into the `lunar` distro by running `/usr/local/bin/bloom-release ypspur_ros --track lunar --ros-distro lunar` on `Thu, 09 May 2019 11:50:17 -0000`
+
+The `ypspur_ros` package was released.
+
+Version of package(s) in repository `ypspur_ros`:
+
+- upstream repository: https://github.com/openspur/ypspur_ros.git
+- release repository: https://github.com/openspur/ypspur_ros-release.git
+- rosdistro version: `0.2.0-0`
+- old version: `0.2.0-0`
+- new version: `0.3.0-1`
+
+Versions of tools used:
+
+- bloom version: `0.8.0`
+- catkin_pkg version: `0.4.12`
+- rosdep version: `0.15.1`
+- rosdistro version: `0.7.4`
+- vcstools version: `0.1.40`
+
+
 ## ypspur_ros (kinetic) - 0.3.0-1
 
 The packages in the `ypspur_ros` repository were released into the `kinetic` distro by running `/usr/local/bin/bloom-release ypspur_ros --track kinetic --ros-distro kinetic` on `Thu, 09 May 2019 11:43:53 -0000`
