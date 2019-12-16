@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>ypspur_ros</name>
-  <version>0.3.0</version>
+  <version>0.3.1</version>
   <description>ROS wrapper for the mobile robot control platform YP-Spur</description>
 
   <maintainer email="atsushi.w@openspur.org">Atsushi Watanabe</maintainer>
@@ -21,5 +21,5 @@
   <depend>std_msgs</depend>
   <depend>tf</depend>
   <depend>trajectory_msgs</depend>
-  <depend>ypspur</depend>
+  <depend version_gte="1.17.0">ypspur</depend>
 </package>
