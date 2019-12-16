@@ -165,7 +165,7 @@ private:
 
   int control_mode_;
 
-  void cbControlMode(const ypspur_ros::ControlMode::ConstPtr &msg)
+  void cbControlMode(const ypspur_ros::ControlMode::ConstPtr& msg)
   {
     control_mode_ = msg->vehicle_control_mode;
     switch (control_mode_)
@@ -180,7 +180,7 @@ private:
         break;
     }
   }
-  void cbCmdVel(const geometry_msgs::Twist::ConstPtr &msg)
+  void cbCmdVel(const geometry_msgs::Twist::ConstPtr& msg)
   {
     cmd_vel_ = msg;
     cmd_vel_time_ = ros::Time::now();
@@ -189,11 +189,8 @@ private:
       YP::YPSpur_vel(msg->linear.x, msg->angular.z);
     }
   }
-  void cbJoint(const trajectory_msgs::JointTrajectory::ConstPtr &msg)
+  void cbJoint(const trajectory_msgs::JointTrajectory::ConstPtr& msg)
   {
-#if !(YPSPUR_JOINT_ANG_VEL_SUPPORT)
-    ROS_ERROR("JointTrajectory command is not available on this YP-Spur version");
-#endif
     const ros::Time now = ros::Time::now();
 
     std_msgs::Header header = msg->header;
@@ -202,7 +199,7 @@ private:
 
     std::map<std::string, trajectory_msgs::JointTrajectory> new_cmd_joints;
     size_t i = 0;
-    for (const std::string &name : msg->joint_names)
+    for (const std::string& name : msg->joint_names)
     {
       trajectory_msgs::JointTrajectory cmd_joint;
       cmd_joint.header = header;
@@ -210,7 +207,7 @@ private:
       cmd_joint.joint_names[0] = name;
       cmd_joint.points.clear();
       std::string err_msg;
-      for (auto &cmd : msg->points)
+      for (auto& cmd : msg->points)
       {
         if (header.stamp + cmd.time_from_start < now)
         {
@@ -241,58 +238,42 @@ private:
       new_cmd_joints[name] = cmd_joint;
     }
     // Apply if all JointTrajectoryPoints are valid
-    for (auto &new_cmd_joint : new_cmd_joints)
+    for (auto& new_cmd_joint : new_cmd_joints)
     {
       const int joint_num = joint_name_to_num_[new_cmd_joint.first];
       joints_[joint_num].control_ = JointParams::TRAJECTORY;
       joints_[joint_num].cmd_joint_ = new_cmd_joint.second;
     }
   }
-  void cbSetVel(const std_msgs::Float32::ConstPtr &msg, int num)
+  void cbSetVel(const std_msgs::Float32::ConstPtr& msg, int num)
   {
     // printf("set_vel %d %d %f\n", num, joints_[num].id_, msg->data);
     joints_[num].vel_ = msg->data;
-#if !(YPSPUR_JOINT_SUPPORT)
-    YP::YP_set_wheel_vel(joints_[0].vel_, joints_[1].vel_);
-#else
     YP::YP_set_joint_vel(joints_[num].id_, joints_[num].vel_);
-#endif
   }
-  void cbSetAccel(const std_msgs::Float32::ConstPtr &msg, int num)
+  void cbSetAccel(const std_msgs::Float32::ConstPtr& msg, int num)
   {
     // printf("set_accel %d %d %f\n", num, joints_[num].id_, msg->data);
     joints_[num].accel_ = msg->data;
-#if !(YPSPUR_JOINT_SUPPORT)
-    YP::YP_set_wheel_accel(joints_[0].accel_, joints_[1].accel_);
-#else
     YP::YP_set_joint_accel(joints_[num].id_, joints_[num].accel_);
-#endif
   }
-  void cbVel(const std_msgs::Float32::ConstPtr &msg, int num)
+  void cbVel(const std_msgs::Float32::ConstPtr& msg, int num)
   {
     // printf("vel_ %d %d %f\n", num, joints_[num].id_, msg->data);
     joints_[num].vel_ref_ = msg->data;
     joints_[num].control_ = JointParams::VELOCITY;
-#if !(YPSPUR_JOINT_SUPPORT)
-    YP::YP_wheel_vel(joints_[0].vel_ref_, joints_[1].vel_ref_);
-#else
     YP::YP_joint_vel(joints_[num].id_, joints_[num].vel_ref_);
-#endif
   }
-  void cbAngle(const std_msgs::Float32::ConstPtr &msg, int num)
+  void cbAngle(const std_msgs::Float32::ConstPtr& msg, int num)
   {
     joints_[num].angle_ref_ = msg->data;
     joints_[num].control_ = JointParams::POSITION;
-#if !(YPSPUR_JOINT_SUPPORT)
-    YP::YP_wheel_ang(joints_[0].angle_ref_, joints_[1].angle_ref_);
-#else
     YP::YP_joint_ang(joints_[num].id_, joints_[num].angle_ref_);
-#endif
   }
-  void cbJointPosition(const ypspur_ros::JointPositionControl::ConstPtr &msg)
+  void cbJointPosition(const ypspur_ros::JointPositionControl::ConstPtr& msg)
   {
     int i = 0;
-    for (auto &name : msg->joint_names)
+    for (auto& name : msg->joint_names)
     {
       if (joint_name_to_num_.find(name) == joint_name_to_num_.end())
       {
@@ -306,21 +287,14 @@ private:
       joints_[num].angle_ref_ = msg->positions[i];
       joints_[num].control_ = JointParams::POSITION;
 
-#if (YPSPUR_JOINT_SUPPORT)
       YP::YP_set_joint_vel(joints_[num].id_, joints_[num].vel_);
       YP::YP_set_joint_accel(joints_[num].id_, joints_[num].accel_);
       YP::YP_joint_ang(joints_[num].id_, joints_[num].angle_ref_);
-#endif
       i++;
     }
-#if !(YPSPUR_JOINT_SUPPORT)
-    YP::YP_set_wheel_vel(joints_[0].vel_, joints_[1].vel_);
-    YP::YP_set_wheel_accel(joints_[0].accel_, joints_[1].accel_);
-    YP::YP_wheel_ang(joints_[0].angle_ref_, joints_[1].angle_ref_);
-#endif
   }
 
-  void cbDigitalOutput(const ypspur_ros::DigitalOutput::ConstPtr &msg, int id_)
+  void cbDigitalOutput(const ypspur_ros::DigitalOutput::ConstPtr& msg, int id_)
   {
     const auto dio_output_prev = dio_output_;
     const auto dio_dir_prev = dio_dir_;
@@ -376,21 +350,16 @@ private:
 
     dio_revert_[id_] = ros::Time(0);
   }
-  void updateDiagnostics(const ros::Time &now, const bool connection_down = false)
+  void updateDiagnostics(const ros::Time& now, const bool connection_down = false)
   {
     const int connection_error = connection_down ? 1 : YP::YP_get_error_state();
     double t = 0;
 
-#if (YPSPUR_GET_DEVICE_ERROR_STATE_SUPPORT)
     int err = 0;
     if (!connection_error)
       t = YP::YP_get_device_error_state(0, &err);
     device_error_state_ |= err;
-#else
-    ROS_WARN_ONCE(
-        "This version of yp-spur doesn't provide device error status. "
-        "Consider building ypspur_ros with latest yp-spur.");
-#endif
+
     if (device_error_state_time_ + ros::Duration(1.0) < now || connection_down ||
         device_error_state_ != device_error_state_prev_)
     {
@@ -629,15 +598,6 @@ public:
         }
       }
     }
-#if !(YPSPUR_JOINT_SUPPORT)
-    if (joints_.size() != 0)
-    {
-      if (!(joints_.size() == 2 && joints_[0].id_ == 0 && joints_[1].id_ == 1))
-      {
-        throw(std::runtime_error("This version of yp-spur only supports [joint0_enable: true, joint1_enable: true]"));
-      }
-    }
-#endif
     if (joints_.size() > 0)
     {
       pubs_["joint"] = compat::advertise<sensor_msgs::JointState>(
@@ -677,7 +637,7 @@ public:
           args.push_back(param_file_);
         }
 
-        char **argv = new char *[args.size() + 1];
+        char** argv = new char*[args.size() + 1];
         for (unsigned int i = 0; i < args.size(); i++)
         {
           argv[i] = new char[args[i].size() + 1];
@@ -782,7 +742,8 @@ public:
   }
   ~YpspurRosNode()
   {
-    if (pid_ > 0)
+    // Kill ypspur-coordinator if the communication is still active.
+    if (pid_ > 0 && YP::YP_get_error_state() == 0)
     {
       ROS_INFO("killing ypspur-coordinator (%d)", (int)pid_);
       kill(pid_, SIGINT);
@@ -790,9 +751,8 @@ public:
       waitpid(pid_, &status, 0);
       ROS_INFO("ypspur-coordinator is killed (status: %d)", status);
     }
-    ros::shutdown();
   }
-  void spin()
+  bool spin()
   {
     geometry_msgs::TransformStamped odom_trans;
     odom_trans.header.frame_id = frames_["odom"];
@@ -820,7 +780,7 @@ public:
       joint.velocity.resize(joints_.size());
       joint.position.resize(joints_.size());
       joint.effort.resize(joints_.size());
-      for (auto &j : joints_)
+      for (auto& j : joints_)
         joint.name.push_back(j.name_);
 
       for (unsigned int i = 0; i < joints_.size(); i++)
@@ -859,8 +819,8 @@ public:
         if (!simulate_control_)
         {
           t = YP::YPSpur_get_pos(YP::CS_BS, &x, &y, &yaw);
-          if (t == 0.0)
-            t = now.toSec();
+          if (t <= 0.0)
+            break;
           YP::YPSpur_get_vel(&v, &w);
         }
         else
@@ -893,9 +853,12 @@ public:
         odom_trans.transform.rotation = tf::createQuaternionMsgFromYaw(yaw);
         tf_broadcaster_.sendTransform(odom_trans);
 
-        t = YP::YPSpur_get_force(&wrench.wrench.force.x, &wrench.wrench.torque.z);
-        if (t == 0.0)
-          t = now.toSec();
+        if (!simulate_control_)
+        {
+          t = YP::YPSpur_get_force(&wrench.wrench.force.x, &wrench.wrench.torque.z);
+          if (t <= 0.0)
+            break;
+        }
         wrench.header.stamp = ros::Time(t);
         wrench.wrench.force.y = 0;
         wrench.wrench.force.z = 0;
@@ -929,36 +892,11 @@ public:
         double t;
         if (!simulate_control_)
         {
-#if !(YPSPUR_JOINT_SUPPORT)
-          while (1)
-          {
-            double js[2];
-            int i;
-            t = YP::YP_get_wheel_ang(&js[0], &js[1]);
-            i = 0;
-            for (auto &j : joints_)
-              joint.position[i++] = js[j.id_];
-            if (t != YP::YP_get_wheel_vel(&js[0], &js[1]))
-              continue;
-            i = 0;
-            for (auto &j : joints_)
-              joint.velocity[i++] = js[j.id_];
-            if (t != YP::YP_get_wheel_torque(&js[0], &js[1]))
-              continue;
-            i = 0;
-            for (auto &j : joints_)
-              joint.effort[i++] = js[j.id_];
-
-            if (t == 0.0)
-              t = ros::Time::now().toSec();
-            break;
-          }
-#else
           t = -1.0;
           while (t < 0.0)
           {
             int i = 0;
-            for (auto &j : joints_)
+            for (auto& j : joints_)
             {
               const double t0 = YP::YP_get_joint_ang(j.id_, &joint.position[i]);
               const double t1 = YP::YP_get_joint_vel(j.id_, &joint.velocity[i]);
@@ -982,10 +920,9 @@ public:
               }
               i++;
             }
-            if (t == 0.0)
-              t = ros::Time::now().toSec();
           }
-#endif
+          if (t <= 0.0)
+            break;
           joint.header.stamp = ros::Time(t);
         }
         else
@@ -1066,19 +1003,18 @@ public:
           tf_broadcaster_.sendTransform(joint_trans[i]);
         }
 
-#if (YPSPUR_JOINT_ANG_VEL_SUPPORT)
         for (unsigned int jid = 0; jid < joints_.size(); jid++)
         {
           if (joints_[jid].control_ != JointParams::TRAJECTORY)
             continue;
 
-          auto &cmd_joint_ = joints_[jid].cmd_joint_;
+          auto& cmd_joint_ = joints_[jid].cmd_joint_;
           auto t = now - cmd_joint_.header.stamp;
           if (t < ros::Duration(0))
             continue;
 
           bool done = true;
-          for (auto &cmd : cmd_joint_.points)
+          for (auto& cmd : cmd_joint_.points)
           {
             if (cmd.time_from_start < ros::Duration(0))
               continue;
@@ -1087,8 +1023,8 @@ public:
             done = false;
 
             double ang_err = cmd.positions[0] - joint.position[jid];
-            double &vel_end_ = cmd.velocities[0];
-            double &vel_start = joint.velocity[jid];
+            double& vel_end_ = cmd.velocities[0];
+            double& vel_start = joint.velocity[jid];
             auto t_left = cmd.time_from_start - t;
 
             double v;
@@ -1117,9 +1053,9 @@ public:
 
               v_min = DBL_MAX;
 
-              auto vf = [](const double &st, const double &en,
-                           const double &acc, const double &err, const double &t,
-                           const int &sig, const int &sol, double &ret)
+              auto vf = [](const double& st, const double& en,
+                           const double& acc, const double& err, const double& t,
+                           const int& sig, const int& sol, double& ret)
               {
                 double sq;
                 sq = -4.0 * st * st +
@@ -1215,7 +1151,6 @@ public:
             }
           }
         }
-#endif
       }
 
       for (int i = 0; i < ad_num_; i++)
@@ -1260,10 +1195,8 @@ public:
       updateDiagnostics(now);
 
       if (YP::YP_get_error_state())
-      {
-        ROS_ERROR("ypspur-coordinator is not active");
         break;
-      }
+
       ros::spinOnce();
       loop.sleep();
 
@@ -1291,23 +1224,35 @@ public:
       }
     }
     ROS_INFO("ypspur_ros main loop terminated");
+
+    if (YP::YP_get_error_state())
+    {
+      ROS_ERROR("ypspur-coordinator is not active");
+      return false;
+    }
+    return true;
   }
 };
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
   ros::init(argc, argv, "ypspur_ros");
+  ros::NodeHandle nh;
+
+  int ret = 0;
 
   try
   {
     YpspurRosNode yr;
-    yr.spin();
+    if (!yr.spin())
+      ret = 1;
   }
-  catch (std::runtime_error &e)
+  catch (std::runtime_error& e)
   {
     ROS_ERROR("%s", e.what());
-    return -1;
+    ret = 1;
   }
 
-  return 0;
+  ros::WallDuration(0.1).sleep();
+  return ret;
 }
