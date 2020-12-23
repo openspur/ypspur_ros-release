@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>ypspur_ros</name>
-  <version>0.3.1</version>
+  <version>0.3.4</version>
   <description>ROS wrapper for the mobile robot control platform YP-Spur</description>
 
   <maintainer email="atsushi.w@openspur.org">Atsushi Watanabe</maintainer>
@@ -14,6 +14,10 @@
   <test_depend>roslint</test_depend>
   <test_depend>rostest</test_depend>
 
+  <build_depend>message_generation</build_depend>
+  <build_export_depend>message_runtime</build_export_depend>
+  <exec_depend>message_runtime</exec_depend>
+
   <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
@@ -21,5 +25,5 @@
   <depend>std_msgs</depend>
   <depend>tf</depend>
   <depend>trajectory_msgs</depend>
-  <depend version_gte="1.17.0">ypspur</depend>
+  <depend version_gte="1.20.0">ypspur</depend>
 </package>
