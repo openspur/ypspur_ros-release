@@ -1,3 +1,4 @@
+release_repo_url: https://github.com/openspur/ypspur_ros-release.git
 tracks:
   indigo:
     actions:
