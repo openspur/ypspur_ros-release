@@ -10,8 +10,8 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the copyright holder nor the names of its 
- *       contributors may be used to endorse or promote products derived from 
+ *     * Neither the name of the copyright holder nor the names of its
+ *       contributors may be used to endorse or promote products derived from
  *       this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
@@ -43,8 +43,10 @@
 #include <ypspur_ros/DigitalOutput.h>
 #include <ypspur_ros/JointPositionControl.h>
 
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_listener.h>
+#include <tf2/utils.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <signal.h>
 #include <string.h>
@@ -83,8 +85,10 @@ private:
   ros::NodeHandle pnh_;
   std::map<std::string, ros::Publisher> pubs_;
   std::map<std::string, ros::Subscriber> subs_;
-  tf::TransformListener tf_listener_;
-  tf::TransformBroadcaster tf_broadcaster_;
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
+  tf2_ros::TransformBroadcaster tf_broadcaster_;
+  const tf2::Vector3 z_axis_;
 
   std::string port_;
   std::string param_file_;
@@ -164,6 +168,10 @@ private:
   ros::Duration cmd_vel_expire_;
 
   int control_mode_;
+
+  bool avoid_publishing_duplicated_odom_;
+  bool publish_odom_tf_;
+  ros::Time previous_odom_stamp_;
 
   void cbControlMode(const ypspur_ros::ControlMode::ConstPtr& msg)
   {
@@ -421,9 +429,13 @@ public:
   YpspurRosNode()
     : nh_()
     , pnh_("~")
+    , tf_listener_(tf_buffer_)
+    , z_axis_(0, 0, 1)
     , device_error_state_(0)
     , device_error_state_prev_(0)
     , device_error_state_time_(0)
+    , avoid_publishing_duplicated_odom_(true)
+    , publish_odom_tf_(true)
   {
     compat::checkCompatMode();
 
@@ -541,6 +553,9 @@ public:
       subs_["cmd_vel"] = compat::subscribe(
           nh_, "cmd_vel",
           pnh_, "cmd_vel", 1, &YpspurRosNode::cbCmdVel, this);
+
+      pnh_.param("avoid_publishing_duplicated_odom", avoid_publishing_duplicated_odom_, true);
+      pnh_.param("publish_odom_tf", publish_odom_tf_, true);
     }
     else if (mode_name.compare("none") == 0)
     {
@@ -777,7 +792,7 @@ public:
     odom.pose.pose.position.x = 0;
     odom.pose.pose.position.y = 0;
     odom.pose.pose.position.z = 0;
-    odom.pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
+    odom.pose.pose.orientation = tf2::toMsg(tf2::Quaternion(z_axis_, 0));
     odom.twist.twist.linear.x = 0;
     odom.twist.twist.linear.y = 0;
     odom.twist.twist.angular.z = 0;
@@ -841,27 +856,35 @@ public:
             v = cmd_vel_->linear.x;
             w = cmd_vel_->angular.z;
           }
-          yaw = tf::getYaw(odom.pose.pose.orientation) + dt * w;
+          yaw = tf2::getYaw(odom.pose.pose.orientation) + dt * w;
           x = odom.pose.pose.position.x + dt * v * cosf(yaw);
           y = odom.pose.pose.position.y + dt * v * sinf(yaw);
         }
 
-        odom.header.stamp = ros::Time(t);
-        odom.pose.pose.position.x = x;
-        odom.pose.pose.position.y = y;
-        odom.pose.pose.position.z = 0;
-        odom.pose.pose.orientation = tf::createQuaternionMsgFromYaw(yaw);
-        odom.twist.twist.linear.x = v;
-        odom.twist.twist.linear.y = 0;
-        odom.twist.twist.angular.z = w;
-        pubs_["odom"].publish(odom);
+        const ros::Time current_stamp(t);
+        if (!avoid_publishing_duplicated_odom_ || (current_stamp > previous_odom_stamp_))
+        {
+          odom.header.stamp = current_stamp;
+          odom.pose.pose.position.x = x;
+          odom.pose.pose.position.y = y;
+          odom.pose.pose.position.z = 0;
+          odom.pose.pose.orientation = tf2::toMsg(tf2::Quaternion(z_axis_, yaw));
+          odom.twist.twist.linear.x = v;
+          odom.twist.twist.linear.y = 0;
+          odom.twist.twist.angular.z = w;
+          pubs_["odom"].publish(odom);
 
-        odom_trans.header.stamp = ros::Time(t) + ros::Duration(tf_time_offset_);
-        odom_trans.transform.translation.x = x;
-        odom_trans.transform.translation.y = y;
-        odom_trans.transform.translation.z = 0;
-        odom_trans.transform.rotation = tf::createQuaternionMsgFromYaw(yaw);
-        tf_broadcaster_.sendTransform(odom_trans);
+          if (publish_odom_tf_)
+          {
+            odom_trans.header.stamp = current_stamp + ros::Duration(tf_time_offset_);
+            odom_trans.transform.translation.x = x;
+            odom_trans.transform.translation.y = y;
+            odom_trans.transform.translation.z = 0;
+            odom_trans.transform.rotation = odom.pose.pose.orientation;
+            tf_broadcaster_.sendTransform(odom_trans);
+          }
+        }
+        previous_odom_stamp_ = current_stamp;
 
         if (!simulate_control_)
         {
@@ -880,18 +903,19 @@ public:
         {
           try
           {
-            tf::StampedTransform transform;
-            tf_listener_.lookupTransform(
+            tf2::Stamped<tf2::Transform> transform;
+            geometry_msgs::TransformStamped transform_msg = tf_buffer_.lookupTransform(
                 frames_["origin"], frames_["base_link"],
-                ros::Time(0), transform);
+                ros::Time(0));
+            tf2::fromMsg(transform_msg, transform);
 
-            tfScalar yaw, pitch, roll;
+            tf2Scalar yaw, pitch, roll;
             transform.getBasis().getEulerYPR(yaw, pitch, roll);
             YP::YPSpur_adjust_pos(YP::CS_GL, transform.getOrigin().x(),
                                   transform.getOrigin().y(),
                                   yaw);
           }
-          catch (tf::TransformException& ex)
+          catch (tf2::TransformException& ex)
           {
             ROS_ERROR("Failed to feedback localization result to YP-Spur (%s)", ex.what());
           }
@@ -1007,8 +1031,7 @@ public:
 
         for (unsigned int i = 0; i < joints_.size(); i++)
         {
-          joint_trans[i].transform.rotation =
-              tf::createQuaternionMsgFromYaw(joint.position[i]);
+          joint_trans[i].transform.rotation = tf2::toMsg(tf2::Quaternion(z_axis_, joint.position[i]));
           joint_trans[i].header.stamp = ros::Time(t) + ros::Duration(tf_time_offset_);
           tf_broadcaster_.sendTransform(joint_trans[i]);
         }
