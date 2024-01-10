@@ -10,6 +10,7 @@ cd /catkin_ws
 
 md_codeblock='```'
 
+echo '::group::prepare'
 if [ -d /catkin_ws/src/self/.cached-dataset ]
 then
   mkdir -p /catkin_ws/build/self/test/
@@ -25,31 +26,30 @@ sed -i -e "/^set(CATKIN_TOPLEVEL TRUE)$/a set(CMAKE_CXX_FLAGS \"-Wall -Werror -O
 echo "--- catkin cmake hook ---"
 grep -A5 -B1 "set(CATKIN_TOPLEVEL TRUE)" /opt/ros/${ROS_DISTRO}/share/catkin/cmake/toplevel.cmake
 echo "-------------------------"
+echo '::endgroup::'
 
 CM_OPTIONS=${CATKIN_MAKE_OPTIONS:-}
 
+echo '::group::catkin_make'
 catkin_make ${CM_OPTIONS} || \
   (gh-pr-comment "${BUILD_LINK} FAILED on ${ROS_DISTRO}" '```catkin_make``` failed'; false)
+echo '::endgroup::'
+echo '::group::catkin_make tests'
 catkin_make tests ${CM_OPTIONS} || \
   (gh-pr-comment "${BUILD_LINK} FAILED on ${ROS_DISTRO}" '```catkin_make tests``` failed'; false)
+echo '::endgroup::'
+echo '::group::catkin_make run_tests'
 catkin_make run_tests ${CM_OPTIONS} || \
   (gh-pr-comment "${BUILD_LINK} FAILED on ${ROS_DISTRO}" '```catkin_make run_tests``` failed'; false)
+echo '::endgroup::'
 
-if [ catkin_test_results ]
-then
-  result_text="
+echo '::group::post-process'
+
+result_text="
 ${md_codeblock}
 $(catkin_test_results --all | grep -v Skipping || true)
 ${md_codeblock}
 "
-else
-  result_text="
-${md_codeblock}
-$(catkin_test_results --all | grep -v Skipping || true)
-${md_codeblock}
-$(find build/test_results/ -name *.xml | xargs -n 1 -- bash -c 'echo; echo \#\#\# $0; echo; echo \\\`\\\`\\\`; xmllint --format $0; echo \\\`\\\`\\\`;')
-"
-fi
 catkin_test_results || (gh-pr-comment "${BUILD_LINK} FAILED on ${ROS_DISTRO}" "<details><summary>Test failed</summary>
 
 $result_text</details>"; false)
@@ -85,17 +85,31 @@ then
 
   if [ -n "$(find . -name "*.gcda")" ]
   then
-    gcov $(find . -name "*.gcda") -p -c -l > /dev/null
+    mkdir -p /tmp/gcov-out/
+    find . -name "*.gcda" | while read gcda
+    do
+      echo "processing ${gcda}"
+      name="${gcda%.gcda}"
+      exec_name="$(echo "${name}" | sed -n 's|^.*/\([^/]\+\)\.dir/.*|.\1|p')"
+      gcov -p ${name}.gcda -s ./ > /dev/null
+      for file in $(find . -name "*.gcov")
+      do
+        base="$(basename ${file})"
+        mv "${file}" "/tmp/gcov-out/${base%.gcov}.${RANDOM}${exec_name}.gcov"
+      done
+    done
+    mv /tmp/gcov-out/* ./
 
     rm -rf $(find build -type d -maxdepth 1 -mindepth 1 | grep -v -e "/self$")
-    download_codecov='wget --timeout=10 -O /tmp/codecov https://codecov.io/bash'
-    ${download_codecov} || ${download_codecov} || ${download_codecov}
-    bash /tmp/codecov \
-      -Z \
-      -X gcov
+    find . -name "*.gcov" | while read file
+    do
+      mkdir -p /orig-src/$(dirname ${file})
+      cp ${file} /orig-src/${file}
+    done
   fi
 fi
 
 gh-pr-comment "${BUILD_LINK} PASSED on ${ROS_DISTRO}" "<details><summary>All tests passed</summary>
 
 $result_text</details>" || true
+echo '::endgroup::'
