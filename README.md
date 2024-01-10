@@ -1,3 +1,26 @@
+## ypspur_ros (noetic) - 0.3.6-1
+
+The packages in the `ypspur_ros` repository were released into the `noetic` distro by running `/usr/bin/bloom-release -y --no-web --ros-distro noetic --override-release-repository-push-url https://github.com/openspur/ypspur_ros-release.git --debug ypspur_ros` on `Wed, 10 Jan 2024 05:03:36 -0000`
+
+The `ypspur_ros` package was released.
+
+Version of package(s) in repository `ypspur_ros`:
+
+- upstream repository: https://github.com/openspur/ypspur_ros.git
+- release repository: https://github.com/openspur/ypspur_ros-release.git
+- rosdistro version: `0.3.5-1`
+- old version: `0.3.5-1`
+- new version: `0.3.6-1`
+
+Versions of tools used:
+
+- bloom version: `0.11.2`
+- catkin_pkg version: `1.0.0`
+- rosdep version: `0.22.2`
+- rosdistro version: `0.9.0`
+- vcstools version: `0.1.42`
+
+
 ## ypspur_ros (noetic) - 0.3.5-1
 
 The packages in the `ypspur_ros` repository were released into the `noetic` distro by running `/usr/bin/bloom-release -y --no-web --ros-distro noetic --override-release-repository-push-url https://github.com/openspur/ypspur_ros-release.git ypspur_ros` on `Thu, 17 Jun 2021 06:16:55 -0000`
