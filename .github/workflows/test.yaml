@@ -17,24 +17,25 @@ jobs:
       fail-fast: false
       matrix:
         env:
-          - ROS_DISTRO=melodic
           - ROS_DISTRO=noetic
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Cache test data
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: .cached-dataset
           key: dataset-${{ hashFiles('test/CMakeLists.txt') }}
           restore-keys: dataset-
       - name: Cache docker layers
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: /home/runner/layers.tar
           key: docker-layers-${{ matrix.env }}-${{ github.sha }}
           restore-keys: docker-layers-${{ matrix.env }}-
+      - name: Set env
+        run: echo "${{ matrix.env }}" | tee ${GITHUB_ENV}
 
       - name: Get dataset
         run: if [ -x .github/get_dataset.sh ]; then .github/get_dataset.sh; fi
@@ -45,32 +46,46 @@ jobs:
         uses: at-wat/setup-gh-pr-comment@v0
       - name: Copy gh-pr-comment for container
         run: cp $(which gh-pr-comment) .github/
-      - name: Download codecov script
-        run: for i in 1 2 3; do wget --timeout=10 -O /tmp/codecovenv https://codecov.io/env && break; done
 
       - name: Test
         run: |
-          eval export ${{ matrix.env }}
           eval export $(cat .github/test.conf)
+          echo "ROS_DISTRO=${ROS_DISTRO}" >> ${GITHUB_ENV}
+
           BUILD_LINK="[${GITHUB_RUN_NUMBER}]"
           touch .rosinstall .rosinstall-isolated
+          echo '::group::docker build'
           docker build \
             -t tester \
             -f .github/Dockerfile \
             --build-arg ROS_DISTRO \
             --pull=true . \
             || (gh-pr-comment "${BUILD_LINK} FAILED on ${ROS_DISTRO}" "docker build failed"; false)
+          echo '::endgroup::'
+
+          mkdir -p /tmp/log
           docker run --rm \
             -e BUILD_LINK=${BUILD_LINK} \
             $(gh-pr-comment-env.sh) \
             -e GITHUB_ACTIONS \
             -e CATKIN_MAKE_OPTIONS \
-            $(bash /tmp/codecovenv) \
+            -v ${GITHUB_WORKSPACE}:/orig-src \
+            -v /tmp/log:/root/.ros/log \
             tester \
             /catkin_ws/src/self/.github/test.sh
+      - name: Compress logs
+        if: always()
+        run: cd /tmp; tar -cJf logs.tar.xz log
+      - name: Upload ROS logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ env.ROS_DISTRO }}.tar.xz
+          path: /tmp/logs.tar.xz
+          retention-days: 1
+      - uses: codecov/codecov-action@v3
       - name: Save layer cache
         run: |
-          eval export ${{ matrix.env }}
           LAYERS=$(docker history -q tester | grep -v missing)
           echo "layers: $(echo ${LAYERS})"
           docker save -o /home/runner/layers.tar ${LAYERS}
