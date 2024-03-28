@@ -23,13 +23,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Cache test data
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: .cached-dataset
           key: dataset-${{ hashFiles('test/CMakeLists.txt') }}
           restore-keys: dataset-
       - name: Cache docker layers
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /home/runner/layers.tar
           key: docker-layers-${{ matrix.env }}-${{ github.sha }}
@@ -83,7 +83,9 @@ jobs:
           name: logs-${{ env.ROS_DISTRO }}.tar.xz
           path: /tmp/logs.tar.xz
           retention-days: 1
-      - uses: codecov/codecov-action@v3
+      - uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Save layer cache
         run: |
           LAYERS=$(docker history -q tester | grep -v missing)
